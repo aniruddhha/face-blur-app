@@ -12,11 +12,11 @@ class FaceDetector:
     def __init__(self, providers: List[str] | None = None) -> None:
         # This sets CPU provider by default so the detector works reliably on most machines
         if providers is None:
-            providers = ["CPUExecutionProvider"]
+            providers = ["CoreMLExecutionProvider", "CPUExecutionProvider"]
         # This stores the providers list so we remember how the detector was configured
         self.providers: List[str] = providers
         # This builds the FaceAnalysis app which includes a fast face detection model
-        self.app: FaceAnalysis = FaceAnalysis(name="buffalo_l", providers=self.providers)
+        self.app: FaceAnalysis = FaceAnalysis(name="buffalo_s", providers=self.providers)
         # This prepares the detector for typical video resolutions to balance speed and accuracy
         self.app.prepare(ctx_id=0, det_size=(640, 640))
 
@@ -144,8 +144,6 @@ class BlurApp:
         if self.writer is not None:
             # This appends the processed frame to the output video file
             self.writer.write(frame)
-
-       # This method wraps detection, blurring, and then delegates HUD drawing to a helper
     
     # This method wraps detection, blurring, and then delegates HUD drawing to a helper
     def _process_frame(self, frame):
@@ -153,36 +151,73 @@ class BlurApp:
         boxes = self.detector.detect_faces(frame)
         # This applies blur to the detected faces when blur mode is enabled
         processed = self.blurrer.blur_faces(frame, boxes, self.blur_enabled)
+
+         # This draws blue rectangles and labels around each detected face on the processed frame
+        processed = self._draw_face_boxes(processed, boxes)
+
         # This calls a helper method to draw the status HUD on the processed frame
         processed = self._draw_hud(processed)
         # This returns the final processed frame so it can be displayed and recorded
         return processed
+    
+     # This method draws blue bounding boxes and a 'face' label on each detected face
+    def _draw_face_boxes(self, frame, boxes: List[Tuple[int, int, int, int]]):
+        # This creates a copy of the frame so drawing does not affect the original reference
+        output = frame.copy()
+        # This loops over each face bounding box so every detected face can be outlined
+        for (x1, y1, x2, y2) in boxes:
+            # This draws a blue rectangle around the face area to highlight the detected region
+            cv2.rectangle(output, (x1, y1), (x2, y2), (255, 0, 0), 2)
+            # This chooses a position slightly above the rectangle to place the label text
+            label_position = (x1, max(0, y1 - 10))
+            # This draws the word 'face' above the rectangle so viewers know what is being detected
+            cv2.putText(output, "face", label_position,
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
+        # This returns the frame with all face rectangles and labels drawn for visualization
+        return output
 
-    # This method draws a red status HUD in the top-right corner of the given frame
-        # This method draws a red status HUD message at the center of the video frame
+        # This method draws a large blur status HUD with a yellow background and white text
     def _draw_hud(self, frame):
-        # This reads the frame height and width so we can compute the visual center
+        # This reads the frame height and width so we can place the HUD near the top-right corner
         height, width = frame.shape[:2]
         # This builds a short status text that shows whether blur is currently on or off
         status_text = f"BLUR {'ON' if self.blur_enabled else 'OFF'}"
-        # This selects the font style to use when drawing the central status message
+        # This selects the font style to use when drawing the blur status message
         font = cv2.FONT_HERSHEY_SIMPLEX
-        # This sets a larger font scale so the central status text is clearly visible
-        font_scale = 1.4
-        # This sets the line thickness so the central text appears bold and readable
-        thickness = 3
-        # This measures the size of the status text to help place it exactly at the center
+        # This sets a larger font scale so the HUD text appears big and easy to notice
+        font_scale = 1.2
+        # This sets the line thickness so the HUD text looks bold and readable
+        thickness = 2
+        # This measures the size of the status text so we can design an enclosing background box
         (text_w, text_h), baseline = cv2.getTextSize(status_text, font, font_scale, thickness)
-        # This calculates the x position so the text is horizontally centered on the frame
-        x = int((width - text_w) / 2)
-        # This calculates the y position so the text baseline is vertically centered on the frame
-        y = int((height + text_h) / 2)
-        # This sets the text color to red so the blur status stands out very clearly
-        color = (0, 0, 255)
-        # This draws the central blur status text so viewers immediately know the current mode
-        cv2.putText(frame, status_text, (x, y), font, font_scale, color, thickness)
-        # This returns the frame with the central HUD added so it can be displayed and recorded
+        # This sets horizontal padding so the yellow background extends beyond the text edges
+        padding_x = 12
+        # This sets vertical padding so the yellow background gives breathing room above and below text
+        padding_y = 8
+        # This computes the total width of the background box including horizontal padding
+        box_width = text_w + 2 * padding_x
+        # This computes the total height of the background box including vertical padding
+        box_height = text_h + 2 * padding_y
+        # This computes the x coordinate so the box appears near the top-right with a small margin
+        x = max(10, width - box_width - 10)
+        # This sets the y coordinate so the box sits slightly below the top border of the frame
+        y = 10
+        # This defines the top-left corner of the yellow background box
+        top_left = (x, y)
+        # This defines the bottom-right corner of the yellow background box
+        bottom_right = (x + box_width, y + box_height)
+        # This draws a filled yellow rectangle as the HUD background so the text stands out clearly
+        cv2.rectangle(frame, top_left, bottom_right, (0, 255, 255), -1)
+        # This computes the x position where the white text will start inside the yellow box
+        text_x = x + padding_x
+        # This computes the y position so the text baseline sits nicely within the yellow box
+        text_y = y + padding_y + text_h
+        # This draws the blur status text in white on top of the yellow background for high contrast
+        cv2.putText(frame, status_text, (text_x, text_y), font, font_scale, (0, 0, 0), thickness, cv2.LINE_AA)
+        # This returns the frame with the updated HUD so it can be displayed and recorded
         return frame
+
+
 
     # This method handles key presses so the user can toggle blur or exit the app
     def _handle_key(self, key: int) -> bool:
